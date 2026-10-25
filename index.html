@@ -56,7 +56,6 @@
     let timerMovimiento;
     let timerRadar;
 
-    // Variables para los audios MP3 reales
     let audioGruñidoBuffer = null;
     let audioPasoBuffer = null;
 
@@ -71,11 +70,10 @@
       vocesDisponibles = window.speechSynthesis.getVoices();
       selectorVoz.innerHTML = '';
       
-      // Buscar voces en español
       const vocesEspanol = vocesDisponibles.filter(voz => voz.lang.includes('es'));
       
       if (vocesEspanol.length === 0) {
-        selectorVoz.innerHTML = '<option value="">No hay voces en español (usando voz por defecto)</option>';
+        selectorVoz.innerHTML = '<option value="">Voz por defecto del sistema</option>';
         return;
       }
 
@@ -87,7 +85,6 @@
       });
     }
 
-    // Cargar voces cuando el navegador las tenga listas
     if (typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged !== undefined) {
       speechSynthesis.onvoiceschanged = cargarVoces;
     }
@@ -97,7 +94,6 @@
         window.speechSynthesis.cancel();
         const mensaje = new SpeechSynthesisUtterance(texto);
         
-        // Seleccionar la voz elegida por el usuario
         const vozElegida = selectorVoz.value;
         if (vozElegida) {
           const vozEncontrada = vocesDisponibles.find(v => v.name === vozElegida);
@@ -112,7 +108,7 @@
       }
     }
 
-    // --- CARGAR AUDIOS MP3 ---
+    // --- CARGAR AUDIOS MP3 (Desde la raíz del repositorio) ---
     async function cargarSonido(url) {
       try {
         const respuesta = await fetch(url);
@@ -120,11 +116,10 @@
         const arrayBuffer = await respuesta.arrayBuffer();
         return await audioCtx.decodeAudioData(arrayBuffer);
       } catch (error) {
-        return null; // Si no existe el MP3, usa el sintetizado
+        return null; 
       }
     }
 
-    // --- INICIAR JUEGO ---
     btnIniciar.addEventListener('click', async () => {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       
@@ -135,16 +130,15 @@
       zombiPadre.maxDistance = 20;
       zombiPadre.connect(audioCtx.destination);
 
-      // Intentar cargar los MP3 (deben estar en la carpeta "sounds")
-      audioGruñidoBuffer = await cargarSonido('sounds/gruñido.mp3');
-      audioPasoBuffer = await cargarSonido('sounds/pasos.mp3');
+      // Buscando los MP3 en la raíz
+      audioGruñidoBuffer = await cargarSonido('gruñido.mp3');
+      audioPasoBuffer = await cargarSonido('pasos.mp3');
 
       panelInicio.style.display = 'none';
       estadoDiv.innerText = "Cargando misión...";
 
       const guionIntro = "Año 2077. La superficie de la Tierra es un páramo radiactivo. La bomba nuclear cayó hace tres años. Tú eres el último explorador del Búnker 7. Tu misión es salir a la superficie, recuperar la señal de radio de la resistencia y eliminar a los infectados. Ponte los auriculares. Escucha el peligro. El zombi se acerca. ¡Prepárate!";
 
-      // Leer la introducción y al terminar, empezar el juego
       hablar(guionIntro, iniciarCombate);
     });
 
@@ -160,7 +154,6 @@
       programarGruñido();
     }
 
-    // --- LÓGICA DEL JUEGO ---
     function actualizarPosicionAudio() {
       zombiPadre.positionX.value = zombiX;
       zombiPadre.positionY.value = 0;
@@ -176,7 +169,7 @@
         if (zombiX < -8) zombiX = -8;
         actualizarPosicionAudio();
         if (zombiZ >= 0) gameOver();
-      }, 2000); // Se acerca cada 2 segundos
+      }, 2000); 
     }
 
     function iniciarRadar() {
@@ -195,10 +188,9 @@
           hablar("Zombi al frente");
           estadoDiv.innerText = "Al frente";
         }
-      }, 4500); // Habla cada 4.5 segundos
+      }, 4500); 
     }
 
-    // --- GRUÑIDOS ---
     function programarGruñido() {
       if (!juegoActivo) return;
       
@@ -209,7 +201,6 @@
         source.connect(zombiPadre);
         source.start();
       } else {
-        // Respaldo sintetizado
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = 'sawtooth';
@@ -228,7 +219,6 @@
       setTimeout(programarGruñido, proximoGruñido);
     }
 
-    // --- DISPAROS Y GESTOS ---
     document.addEventListener('touchend', (e) => {
       if (!juegoActivo) return;
       const ahora = Date.now();
@@ -241,7 +231,6 @@
     }, { passive: false });
 
     function dispararLaser() {
-      // Sonido de láser
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'square';
