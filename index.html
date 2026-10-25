@@ -10,20 +10,20 @@
       height: 100vh; margin: 0; display: flex; flex-direction: column; justify-content: center;
       touch-action: none;
     }
-    h1 { color: #0f0; font-size: 28px; margin-bottom: 10px; }
-    .panel { background: #111; border: 1px solid #333; padding: 20px; border-radius: 15px; }
-    label { font-size: 16px; color: #aaa; display: block; margin-bottom: 5px;}
+    h1 { color: #0f0; font-size: 26px; margin-bottom: 5px; }
+    .panel { background: #111; border: 1px solid #333; padding: 20px; border-radius: 15px; max-width: 400px; margin: 0 auto;}
+    label { font-size: 14px; color: #aaa; display: block; margin-bottom: 5px;}
     select { 
       padding: 10px; font-size: 16px; border-radius: 5px; background: #333; color: #fff; 
-      width: 100%; margin-bottom: 20px; border: 1px solid #555;
+      width: 100%; margin-bottom: 15px; border: 1px solid #555;
     }
     button {
-      padding: 15px; font-size: 20px; background: #0f0; color: #000; border: none; border-radius: 10px;
+      padding: 15px; font-size: 18px; background: #0f0; color: #000; border: none; border-radius: 10px;
       font-weight: bold; width: 100%; cursor: pointer;
     }
     button:hover { background: #0c0; }
-    #estado { margin-top: 20px; font-size: 18px; color: #ff6a00; font-weight: bold; min-height: 40px;}
-    #instrucciones { font-size: 15px; color: #888; margin-top: 15px; line-height: 1.4; }
+    #estado { margin-top: 15px; font-size: 16px; color: #ff6a00; font-weight: bold; min-height: 40px;}
+    #info { font-size: 14px; color: #0f0; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -31,18 +31,20 @@
   <h1>Zombie 3D</h1>
   
   <div class="panel" id="panelInicio">
-    <label for="selectorVoz">Elegí la voz del juego:</label>
-    <select id="selectorVoz"></select>
+    <label for="selectorVoz">Voz del juego (si no aparece, presiona Iniciar):</label>
+    <select id="selectorVoz">
+      <option value="">Cargando voces...</option>
+    </select>
     
-    <button id="btnIniciar">Iniciar Misión</button>
+    <button id="btnIniciar">Iniciar Nivel 1</button>
     <div id="instrucciones">
-      <p>1. Ponete auriculares 🎧</p>
-      <p>2. Escucha la historia y la voz del radar</p>
-      <p>3. Doble toque rápido para disparar 🔫⚡</p>
+      <p>Ponete auriculares 🎧 y escucha.</p>
+      <p>Desliza el dedo para disparar.</p>
     </div>
   </div>
   
   <div id="estado" aria-live="polite">Esperando conexión...</div>
+  <div id="info"></div>
 
   <script>
     let audioCtx;
@@ -50,26 +52,39 @@
     let juegoActivo = false;
     let ultimoToqueTiempo = 0;
 
+    // Posiciones
     let zombiX = 0; 
-    let zombiZ = -10; 
+    let zombiZ = -20; 
+    
+    // Variables de Juego (Niveles)
+    let nivel = 1;
+    let zombisEliminados = 0;
+    let zombisParaPasarNivel = 3;
+    let distanciaMeta = 150; // Metros para llegar a la meta
 
     let timerMovimiento;
     let timerRadar;
+    let timerGruñido;
+    let timerMusica;
 
+    // Audios
     let audioGruñidoBuffer = null;
     let audioPasoBuffer = null;
+    let audioMusicaBuffer = null;
 
     const btnIniciar = document.getElementById('btnIniciar');
     const estadoDiv = document.getElementById('estado');
+    const infoDiv = document.getElementById('info');
     const panelInicio = document.getElementById('panelInicio');
     const selectorVoz = document.getElementById('selectorVoz');
 
-    // --- SISTEMA DE VOCES ---
+    // --- SISTEMA DE VOCES ARREGLADO ---
     let vocesDisponibles = [];
     function cargarVoces() {
       vocesDisponibles = window.speechSynthesis.getVoices();
-      selectorVoz.innerHTML = '';
+      if (vocesDisponibles.length === 0) return; // Si aún no cargan, esperar
       
+      selectorVoz.innerHTML = '';
       const vocesEspanol = vocesDisponibles.filter(voz => voz.lang.includes('es'));
       
       if (vocesEspanol.length === 0) {
@@ -77,7 +92,7 @@
         return;
       }
 
-      vocesEspanol.forEach((voz, index) => {
+      vocesEspanol.forEach((voz) => {
         const opcion = document.createElement('option');
         opcion.value = voz.name;
         opcion.textContent = `${voz.name} (${voz.lang})`;
@@ -85,6 +100,7 @@
       });
     }
 
+    // Forzar la carga de voces al tocar el selector o al hacer clic
     if (typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged !== undefined) {
       speechSynthesis.onvoiceschanged = cargarVoces;
     }
@@ -100,15 +116,12 @@
           if (vozEncontrada) mensaje.voice = vozEncontrada;
         }
         
-        mensaje.rate = 1.1;
-        if (callback) {
-          mensaje.onend = callback;
-        }
+        mensaje.rate = 1.2;
+        if (callback) mensaje.onend = callback;
         window.speechSynthesis.speak(mensaje);
       }
     }
 
-    // --- CARGAR AUDIOS MP3 (Desde la raíz del repositorio) ---
     async function cargarSonido(url) {
       try {
         const respuesta = await fetch(url);
@@ -120,38 +133,45 @@
       }
     }
 
+    // --- INICIAR JUEGO ---
     btnIniciar.addEventListener('click', async () => {
+      cargarVoces(); // Intentar cargar voces de nuevo al hacer clic
+      
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       
       zombiPadre = audioCtx.createPanner();
       zombiPadre.panningModel = 'HRTF'; 
       zombiPadre.distanceModel = 'linear'; 
       zombiPadre.refDistance = 1;
-      zombiPadre.maxDistance = 20;
+      zombiPadre.maxDistance = 30;
       zombiPadre.connect(audioCtx.destination);
 
-      // Buscando los MP3 en la raíz
       audioGruñidoBuffer = await cargarSonido('gruñido.mp3');
       audioPasoBuffer = await cargarSonido('pasos.mp3');
+      audioMusicaBuffer = await cargarSonido('musica.mp3'); // Opcional
 
       panelInicio.style.display = 'none';
       estadoDiv.innerText = "Cargando misión...";
+      nivel = 1;
+      zombisEliminados = 0;
 
-      const guionIntro = "Año 2077. La superficie de la Tierra es un páramo radiactivo. La bomba nuclear cayó hace tres años. Tú eres el último explorador del Búnker 7. Tu misión es salir a la superficie, recuperar la señal de radio de la resistencia y eliminar a los infectados. Ponte los auriculares. Escucha el peligro. El zombi se acerca. ¡Prepárate!";
-
-      hablar(guionIntro, iniciarCombate);
+      const intro = "Año 2077. Búnker 7. Tu misión es llegar al refugio seguro a 150 metros. Sobrevive a las hordas de infectados. Nivel 1. Prepárate.";
+      hablar(intro, iniciarCombate);
     });
 
     function iniciarCombate() {
+      zombiZ = -20; // Reiniciar distancia del zombi
+      zombiX = (Math.random() - 0.5) * 10; // Aparece en lado aleatorio
       actualizarPosicionAudio();
-      juegoActivo = true;
-      estadoDiv.innerText = "Escucha con atención...";
       
-      hablar("El zombi se acerca. Escucha con atención.");
+      juegoActivo = true;
+      estadoDiv.innerText = `Nivel ${nivel}. Eliminados: ${zombisEliminados}/${zombisParaPasarNivel}`;
+      infoDiv.innerText = `Faltan ${distanciaMeta} metros para el refugio.`;
       
       iniciarMovimientoZombi();
       iniciarRadar();
       programarGruñido();
+      if (audioMusicaBuffer) iniciarMusica();
     }
 
     function actualizarPosicionAudio() {
@@ -161,34 +181,39 @@
     }
 
     function iniciarMovimientoZombi() {
+      clearInterval(timerMovimiento);
       timerMovimiento = setInterval(() => {
         if (!juegoActivo) return;
-        zombiZ += 1.5;
-        zombiX += (Math.random() - 0.5) * 4;
-        if (zombiX > 8) zombiX = 8;
-        if (zombiX < -8) zombiX = -8;
+        
+        // El zombi se acerca más rápido en niveles altos
+        zombiZ += 1 + (nivel * 0.5); 
+        zombiX += (Math.random() - 0.5) * 5;
+        
+        if (zombiX > 10) zombiX = 10;
+        if (zombiX < -10) zombiX = -10;
         actualizarPosicionAudio();
+        
         if (zombiZ >= 0) gameOver();
-      }, 2000); 
+      }, 1500); 
     }
 
     function iniciarRadar() {
+      clearInterval(timerRadar);
       timerRadar = setInterval(() => {
         if (!juegoActivo) return;
-        if (zombiZ > -4 && zombiX > -2 && zombiX < 2) {
-          hablar("¡Zombi al centro, dispara!");
-          estadoDiv.innerText = "¡EN LA MIRA!";
-        } else if (zombiX < -2) {
-          hablar("Zombi a la izquierda");
-          estadoDiv.innerText = "<--- Izquierda";
-        } else if (zombiX > 2) {
-          hablar("Zombi a la derecha");
-          estadoDiv.innerText = "Derecha --->";
+        
+        let distanciaReal = Math.abs(zombiZ).toFixed(0);
+        
+        if (zombiZ > -6 && zombiX > -3 && zombiX < 3) {
+          hablar(`¡Zombi al centro a ${distanciaReal} metros, dispara!`);
+        } else if (zombiX <= -3) {
+          hablar(`Zombi a la izquierda a ${distanciaReal} metros`);
+        } else if (zombiX >= 3) {
+          hablar(`Zombi a la derecha a ${distanciaReal} metros`);
         } else {
-          hablar("Zombi al frente");
-          estadoDiv.innerText = "Al frente";
+          hablar(`Zombi al frente a ${distanciaReal} metros`);
         }
-      }, 4500); 
+      }, 5000); 
     }
 
     function programarGruñido() {
@@ -200,25 +225,24 @@
         source.playbackRate.value = 0.8 + (Math.random() * 0.4);
         source.connect(zombiPadre);
         source.start();
-      } else {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(60, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 0.2);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.2);
-        osc.connect(gain);
-        gain.connect(zombiPadre);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 1.2);
       }
       
-      const proximoGruñido = Math.random() * 3000 + 2000;
-      setTimeout(programarGruñido, proximoGruñido);
+      timerGruñido = setTimeout(programarGruñido, Math.random() * 3000 + 2000);
     }
 
+    function iniciarMusica() {
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioMusicaBuffer;
+      source.loop = true; // Se repite infinitamente
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.2; // Volumen bajo para no tapar el radar
+      source.connect(gain);
+      gain.connect(audioCtx.destination);
+      source.start();
+      timerMusica = source; // Guardar para poder detenerla
+    }
+
+    // --- DISPAROS ---
     document.addEventListener('touchend', (e) => {
       if (!juegoActivo) return;
       const ahora = Date.now();
@@ -245,15 +269,28 @@
       
       if (navigator.vibrate) navigator.vibrate(80); 
 
-      if (zombiZ > -5 && zombiX > -2.5 && zombiX < 2.5) {
-        hablar("¡Impacto directo! Zombi eliminado.");
-        estadoDiv.innerText = "¡ZOMBI ELIMINADO!";
+      // Zona de impacto
+      if (zombiZ > -8 && zombiX > -3.5 && zombiX < 3.5) {
+        zombisEliminados++;
         reproducirImpacto();
-        reiniciarJuego(3000);
+        detenerCombateTemporal();
+        
+        if (zombisEliminados >= zombisParaPasarNivel) {
+          subirNivel();
+        } else {
+          hablar(`¡Zombi eliminado! Llevas ${zombisEliminados} de ${zombisParaPasarNivel}.`);
+          setTimeout(iniciarCombate, 3000);
+        }
       } else {
-        hablar("Fallo. El zombi se movió.");
-        estadoDiv.innerText = "¡Fallo! Estaba en " + (zombiX < 0 ? "la izquierda" : "la derecha");
+        hablar("Fallo. Ajusta tu puntería.");
       }
+    }
+
+    function detenerCombateTemporal() {
+      juegoActivo = false;
+      clearInterval(timerMovimiento);
+      clearInterval(timerRadar);
+      clearTimeout(timerGruñido);
     }
 
     function reproducirImpacto() {
@@ -271,27 +308,37 @@
       if (navigator.vibrate) navigator.vibrate([100, 50, 200]); 
     }
 
-    function gameOver() {
-      juegoActivo = false;
-      clearInterval(timerMovimiento);
-      clearInterval(timerRadar);
-      hablar("El zombi te ha alcanzado. Has muerto. Fin de la transmisión.");
-      estadoDiv.innerText = "GAME OVER - Te atraparon";
-      if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-      reiniciarJuego(5000);
+    function subirNivel() {
+      nivel++;
+      zombisEliminados = 0;
+      zombisParaPasarNivel = 3 + nivel; // Cada nivel pide más zombis
+      distanciaMeta -= 50; // Te acercas a la meta
+      
+      if (distanciaMeta <= 0) {
+        hablar("¡Felicidades! Has llegado al refugio. Fin de la misión.");
+        estadoDiv.innerText = "¡VICTORIA!";
+        return;
+      }
+
+      hablar(`¡Nivel ${nivel} superado! Avanzas al siguiente sector. Te faltan ${distanciaMeta} metros.`);
+      estadoDiv.innerText = `Nivel ${nivel}`;
+      infoDiv.innerText = `Faltan ${distanciaMeta} metros para el refugio.`;
+      
+      setTimeout(iniciarCombate, 4000);
     }
 
-    function reiniciarJuego(tiempo) {
-      juegoActivo = false;
-      clearInterval(timerMovimiento);
-      clearInterval(timerRadar);
+    function gameOver() {
+      detenerCombateTemporal();
+      hablar("El zombi te ha alcanzado. Fin de la transmisión.");
+      estadoDiv.innerText = "GAME OVER - Te atraparon";
+      if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+      
       setTimeout(() => {
         panelInicio.style.display = 'block';
+        btnIniciar.innerText = "Reintentar";
         estadoDiv.innerText = "Esperando conexión...";
-        zombiX = 0;
-        zombiZ = -10;
-        actualizarPosicionAudio();
-      }, tiempo);
+        infoDiv.innerText = "";
+      }, 4000);
     }
   </script>
 </body>
